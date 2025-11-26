@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Endless Runner - Chrome Dino Inspired</title>
+<style>
+  :root {
+    --bg: #f7f7f7;
+    --ground: #555;
+    --dino: #333;
+    --cactus: #2e7d32;
+    --ui: #222;
+    --accent: #1976d2;
+    --danger: #c62828;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    height: 100%;
+    margin: 0;
+    background: var(--bg);
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  }
+  .wrap {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 12px;
+  }
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: var(--ui);
+    margin-bottom: 8px;
+  }
+  header h1 {
+    font-size: 16px;
+    margin: 0;
+    font-weight: 600;
+    letter-spacing: .2px;
+  }
+  .hud {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    font-size: 14px;
+    color: var(--ui);
+    user-select: none;
+  }
+  .hud .score {
+    min-width: 120px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .hud .speed {
+    min-width: 80px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .stage {
+    position: relative;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0,0,0,.05);
+    background:
+      linear-gradient(to bottom, rgba(255,255,255,.65), rgba(255,255,255,.35)),
+      var(--bg);
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    image-rendering: optimizeSpeed;
+    image-rendering: pixelated;
+  }
+
+  .overlay {
+    position: absolute;
+    inset: 0;
+    display: none;
+    background: rgba(250,250,250,.88);
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 24px;
+  }
+  .overlay.show { display: flex; }
+  .panel {
+    max-width: 420px;
+    width: 100%;
+    background: #fff;
+    border: 1px solid #eee;
+    border-radius: 10px;
+    padding: 20px 18px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.08);
+    color: var(--ui);
+  }
+  .panel h2 {
+    margin: 0 0 8px;
+    font-size: 20px;
+    color: var(--danger);
+    font-weight: 700;
+  }
+  .panel p {
+    margin: 0 0 16px;
+    font-size: 14px;
+    color: #555;
+    line-height: 1.5;
+  }
+  .panel .stats {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    font-variant-numeric: tabular-nums;
+  }
+  .panel button {
+    appearance: none;
+    border: 0;
+    background: var(--accent);
+    color: #fff;
+    padding: 12px 16px;
+    width: 100%;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 2px 0 rgba(0,0,0,.12);
+  }
+  .panel button:active {
+    transform: translateY(1px);
+  }
+
+  footer {
+    margin-top: 10px;
+    font-size: 12px;
+    color: #888;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Endless Runner</h1>
+    <div class="hud">
+      <div class="score">Score: <span id="score">00000</span></div>
+      <div class="speed">Speed: <span id="speed">0.0</span>x</div>
+      <div class="hint">Jump: Space/Tap · Duck: Down</div>
+    </div>
+  </header>
+
+  <div class="stage" id="stage">
+    <canvas id="game" width="900" height="260" aria-label="Endless Runner"></canvas>
+    <div class="overlay" id="overlay">
+      <div class="panel">
+        <h2>Game Over</h2>
+        <div class="stats">
+          <div>Score: <strong id="finalScore">0</strong></div>
+          <div>Best: <strong id="bestScore">0</strong></div>
+        </div>
+        <p>Press Space or tap to jump. Hold Down to duck under flying enemies.</p>
+        <button id="restart">Restart</button>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    Inspired by the Chrome Dino game. Built with HTML5 Canvas + JS.
+  </footer>
+</div>
+
+<script>
+  // LIST OF GITHUB URLS GOES HERE
+  const pterodactylImageURLs = ['c034cd99e621e570952bbac5c71c0db4.jpg'];
+
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const overlay = document.getElementById('overlay');
+  const restartBtn = document.getElementById('restart');
+  const scoreEl = document.getElementById('score');
+  const speedEl = document.getElementById('speed');
+  const finalScoreEl = document.getElementById('finalScore');
+  const bestScoreEl = document.getElementById('bestScore');
+  const stageEl = document.getElementById('stage');
+
+  const W = canvas.width;
+  const H = canvas.height;
+
+  // Game constants
+  const GROUND_Y = H - 40;
+  const GRAVITY = 1800;        // px/s^2
+  const JUMP_VELOCITY = -640;  // px/s
+  const DINO_WIDTH = 44;
+  const DINO_HEIGHT = 48;
+  const DINO_CROUCH_HEIGHT = 30;
+  const PTERO_WIDTH = 50;      // required scaled width
+  const PTERO_HEIGHT = 40;     // required scaled height
+
+  const INITIAL_SPEED = 320;   // px/s world scroll speed
+  const SPEED_INCREASE_PER_SEC = 8; // speed increases slowly over time
+  const OBSTACLE_MIN_GAP = 280;
+  const OBSTACLE_MAX_GAP = 580;
+
+  // Game state
+  let isRunning = false;
+  let isGameOver = false;
+  let tPrev = 0;
+  let worldSpeed = INITIAL_SPEED;
+  let score = 0;
+  let bestScore = 0;
+
+  // Player
+  const dino = {
+    x: 60,
+    y: GROUND_Y - DINO_HEIGHT,
+    vy: 0,
+    width: DINO_WIDTH,
+    height: DINO_HEIGHT,
+    crouching: false,
+    onGround: true
+  };
+
+  // Obstacles
+  const obstacles = [];
+  let nextObstacleIn = randomRange(OBSTACLE_MIN_GAP, OBSTACLE_MAX_GAP);
+
+  // Input
+  let jumpQueued = false;
+  let duckHeld = false;
+  let pointerDown = false;
+
+  // Utilities
+  function randomRange(min, max) { return Math.random() * (max - min) + min; }
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+  function aabbOverlap(ax, ay, aw, ah, bx, by, bw, bh) {
+    return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+  }
+
+  // Input handlers
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space') {
+      e.preventDefault();
+      jumpQueued = true;
+    } else if (e.code === 'ArrowDown') {
+      e.preventDefault();
+      duckHeld = true;
+    }
+    if (isGameOver && e.code === 'Space') restart();
+  });
+
+  window.addEventListener('keyup', (e) => {
+    if (e.code === 'ArrowDown') {
+      duckHeld = false;
+    }
+  });
+
+  stageEl.addEventListener('pointerdown', () => {
+    pointerDown = true;
+    jumpQueued = true;
+    if (isGameOver) restart();
+  });
+  stageEl.addEventListener('pointerup', () => { pointerDown = false; });
+
+  restartBtn.addEventListener('click', restart);
+
+  function start() {
+    isRunning = true;
+    isGameOver = false;
+    overlay.classList.remove('show');
+    tPrev = performance.now();
+    requestAnimationFrame(loop);
+  }
+
+  function restart() {
+    score = 0;
+    worldSpeed = INITIAL_SPEED;
+    obstacles.length = 0;
+    nextObstacleIn = randomRange(OBSTACLE_MIN_GAP, OBSTACLE_MAX_GAP);
+    dino.y = GROUND_Y - DINO_HEIGHT;
+    dino.vy = 0;
+    dino.onGround = true;
+    dino.crouching = false;
+    isGameOver = false;
+    isRunning = true;
+    overlay.classList.remove('show');
+    tPrev = performance.now();
+    requestAnimationFrame(loop);
+  }
+
+  function loop(tNow) {
+    if (!isRunning) return;
+    const dt = (tNow - tPrev) / 1000;
+    tPrev = tNow;
+
+    update(dt);
+    draw();
+
+    if (isRunning) requestAnimationFrame(loop);
+  }
+
+  function update(dt) {
+    // Speed scaling
+    worldSpeed += SPEED_INCREASE_PER_SEC * dt;
+
+    // Player controls
+    dino.crouching = duckHeld && dino.onGround;
+    const targetHeight = dino.crouching ? DINO_CROUCH_HEIGHT : DINO_HEIGHT;
+    dino.height = targetHeight;
+
+    if (jumpQueued) {
+      if (dino.onGround) {
+        dino.vy = JUMP_VELOCITY;
+        dino.onGround = false;
+      }
+      jumpQueued = false;
+    }
+
+    if (!dino.onGround) {
+      dino.vy += GRAVITY * dt;
+      dino.y += dino.vy * dt;
+      if (dino.y >= GROUND_Y - dino.height) {
+        dino.y = GROUND_Y - dino.height;
+        dino.vy = 0;
+        dino.onGround = true;
+      }
+    } else {
+      // Keep aligned to ground when crouching changes height
+      dino.y = GROUND_Y - dino.height;
+    }
+
+    // Obstacles management
+    nextObstacleIn -= worldSpeed * dt;
+    if (nextObstacleIn <= 0) {
+      spawnObstacle();
+      nextObstacleIn = randomRange(OBSTACLE_MIN_GAP, OBSTACLE_MAX_GAP);
+    }
+
+    // Move obstacles
+    for (let i = obstacles.length - 1; i >= 0; i--) {
+      const o = obstacles[i];
+      o.x -= worldSpeed * dt;
+      if (o.x + o.width < 0) obstacles.splice(i, 1);
+    }
+
+    // Collision detection
+    for (let i = 0; i < obstacles.length; i++) {
+      const o = obstacles[i];
+      if (aabbOverlap(dino.x, dino.y, dino.width, dino.height, o.x, o.y, o.width, o.height)) {
+        gameOver();
+        break;
+      }
+    }
+
+    // Score
+    score += worldSpeed * dt * 0.02; // tune score rate
+    scoreEl.textContent = String(Math.floor(score)).padStart(5, '0');
+    speedEl.textContent = (worldSpeed / INITIAL_SPEED).toFixed(1);
+  }
+
+  function spawnObstacle() {
+    // Bias: more ground cacti at lower speeds, introduce ptero more as speed increases
+    const pteroChance = clamp((worldSpeed - INITIAL_SPEED) / 600, 0.15, 0.45);
+    const isPtero = Math.random() < pteroChance;
+
+    if (isPtero) {
+      const imgURL = pterodactylImageURLs[Math.floor(Math.random() * pterodactylImageURLs.length)];
+      const pteroYLevels = [GROUND_Y - 90, GROUND_Y - 120, GROUND_Y - 150];
+      const y = pteroYLevels[Math.floor(Math.random() * pteroYLevels.length)];
+
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.src = imgURL;
+
+      obstacles.push({
+        type: 'ptero',
+        x: W + 20,
+        y: y - PTERO_HEIGHT,
+        width: PTERO_WIDTH,
+        height: PTERO_HEIGHT,
+        img,
+        loaded: false
+      });
+
+      img.onload = () => { /* ensure drawImage uses loaded image */ };
+      img.onerror = () => { /* image failed; still keep obstacle for collision */ };
+    } else {
+      // Cactus sizes: small, medium, tall
+      const sizes = [
+        { w: 26, h: 40, seg: 1 },
+        { w: 34, h: 52, seg: 2 },
+        { w: 46, h: 64, seg: 3 }
+      ];
+      const pick = sizes[Math.floor(Math.random() * sizes.length)];
+      obstacles.push({
+        type: 'cactus',
+        x: W + 20,
+        y: GROUND_Y - pick.h,
+        width: pick.w,
+        height: pick.h,
+        seg: pick.seg
+      });
+    }
+  }
+
+  function draw() {
+    // Clear
+    ctx.clearRect(0, 0, W, H);
+
+    // Sky background
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, W, H);
+
+    // Ground line
+    ctx.strokeStyle = 'rgba(0,0,0,.25)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, GROUND_Y + 1);
+    ctx.lineTo(W, GROUND_Y + 1);
+    ctx.stroke();
+
+    // Player (simple box; duck changes height)
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--dino').trim() || '#333';
+    ctx.fillRect(Math.round(dino.x), Math.round(dino.y), dino.width, dino.height);
+
+    // Obstacles
+    for (const o of obstacles) {
+      if (o.type === 'cactus') {
+        drawCactus(o);
+      } else if (o.type === 'ptero') {
+        drawPtero(o);
+      }
+    }
+  }
+
+  function drawCactus(o) {
+    const c = getComputedStyle(document.documentElement).getPropertyValue('--cactus').trim() || '#2e7d32';
+    ctx.fillStyle = c;
+    // Stylized cactus: multiple arms for seg > 1
+    ctx.fillRect(Math.round(o.x), Math.round(o.y), o.width, o.height);
+    if (o.seg >= 2) {
+      ctx.fillRect(Math.round(o.x + o.width * 0.2), Math.round(o.y + o.height * 0.35), Math.round(o.width * 0.35), Math.round(o.height * 0.15));
+    }
+    if (o.seg >= 3) {
+      ctx.fillRect(Math.round(o.x + o.width * 0.55), Math.round(o.y + o.height * 0.55), Math.round(o.width * 0.30), Math.round(o.height * 0.12));
+    }
+  }
+
+  function drawPtero(o) {
+    // Always draw with fixed scaled dimensions regardless of source image size
+    // Canvas handles scaling via destination width/height parameters.
+    if (o.img && o.img.complete && o.img.naturalWidth > 0) {
+      ctx.drawImage(
+        o.img,
+        Math.round(o.x), Math.round(o.y),
+        PTERO_WIDTH, PTERO_HEIGHT
+      );
+    } else {
+      // If image not yet loaded, reserve the space with a silhouette box
+      // This keeps collision bounds consistent but avoids drawing shapes as the final sprite.
+      ctx.fillStyle = 'rgba(0,0,0,.08)';
+      ctx.fillRect(Math.round(o.x), Math.round(o.y), PTERO_WIDTH, PTERO_HEIGHT);
+    }
+  }
+
+  function gameOver() {
+    isRunning = false;
+    isGameOver = true;
+    finalScoreEl.textContent = Math.floor(score);
+    bestScore = Math.max(bestScore, Math.floor(score));
+    bestScoreEl.textContent = bestScore;
+    overlay.classList.add('show');
+  }
+
+  // Kick off the game after a tiny delay so layout is ready
+  setTimeout(start, 60);
+</script>
+</body>
+</html>
